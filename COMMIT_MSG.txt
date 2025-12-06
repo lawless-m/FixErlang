@@ -1,0 +1,18 @@
+Fix memory leak in dyn_erl.c --realpath code path
+
+The find_prog() function returns a strdup()'d string that must be freed
+by the caller. In the --realpath code path (line 365-373), the function
+returns early without freeing this allocated memory, causing ASAN to
+report a 57-byte leak during Erlang builds with AddressSanitizer enabled.
+
+This leak prevents building Erlang/OTP with ASAN leak detection enabled,
+which is valuable for fuzzing and security research of Erlang applications
+with native C code.
+
+In the normal execution path, this memory is correctly freed at line 403
+with efree(abspath). This fix adds the same cleanup to the --realpath
+early return path.
+
+Tested by building OTP 26.2.5.12 with CFLAGS="-fsanitize=address" and
+ASAN_OPTIONS="detect_leaks=1", which previously failed at this leak and
+now completes successfully.
