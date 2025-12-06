@@ -51,18 +51,41 @@ This allows the build to complete but doesn't fix the underlying issue.
 2. Submit a pull request to erlang/otp
 3. Enable ASAN leak detection during build (currently disabled)
 
+## The Fix
+
+The memory leak occurs in `erts/etc/unix/dyn_erl.c` in the `main()` function's `--realpath` code path (lines 365-373).
+
+**Root Cause:** The `find_prog()` function returns a `strdup()`'d string that must be freed by the caller. In the normal execution path, this memory is correctly freed at line 403 with `efree(abspath)`. However, in the `--realpath` path, the function returns early without freeing the allocated memory.
+
+**Fix:** Add `efree(abspath);` before the `return 0;` statement in the `--realpath` block.
+
+```c
+// Before (leaks memory):
+printf("%s", abspath);
+return 0;
+
+// After (fixed):
+printf("%s", abspath);
+efree(abspath);
+return 0;
+```
+
+The fix is available in:
+- `fix/dyn_erl.c` - The patched source file
+- `fix/0001-Fix-memory-leak-in-dyn_erl.c-find_prog.patch` - Patch for upstream submission
+
 ## Implementation Plan
 
 ### Phase 1: Reproduce and Analyze
-- [ ] Clone erlang/otp repository (use OTP-26.2.5.12 tag)
+- [x] Clone erlang/otp repository (use OTP-26.2.5.12 tag)
 - [ ] Build with ASAN to reproduce the leak
-- [ ] Examine `erts/etc/unix/dyn_erl.c:209` (find_prog function)
-- [ ] Identify all strdup() calls that aren't freed
-- [ ] Check if there are other similar leaks in the codebase
+- [x] Examine `erts/etc/unix/dyn_erl.c:209` (find_prog function)
+- [x] Identify all strdup() calls that aren't freed
+- [x] Check if there are other similar leaks in the codebase
 
 ### Phase 2: Fix the Leak
-- [ ] Add appropriate free() call(s) in dyn_erl.c
-- [ ] Ensure the fix doesn't break any error paths
+- [x] Add appropriate free() call(s) in dyn_erl.c
+- [x] Ensure the fix doesn't break any error paths
 - [ ] Test that the fixed code still works correctly
 - [ ] Verify the leak is gone with ASAN
 
@@ -118,8 +141,6 @@ make -j$(nproc)
 
 ## Related Context
 
-This issue was discovered while working on MQTT fuzzing project at:
-`/home/matt/Git/mtqq-fuzzer/`
+This issue was discovered while working on an MQTT fuzzing project.
 
-Full ASAN build log available at:
-`~/erlang-asan-build.log`
+Full ASAN build log available in this repository at `asan-build-failure.log`.
